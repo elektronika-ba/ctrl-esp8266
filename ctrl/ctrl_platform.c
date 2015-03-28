@@ -33,8 +33,8 @@ os_timer_t tmrLinker;
 static unsigned char tcpReconCount;
 static tCtrlConnState connState = CTRL_WIFI_CONNECTING;
 
-os_timer_t tmrStatusLedBlinker;
-os_timer_t tmrStatusLedBlinkerFlash;
+static tStatusLed statusLed;
+
 tCtrlSetup ctrlSetup;
 tCtrlCallbacks ctrlCallbacks;
 static unsigned char outOfSyncCounter;
@@ -42,20 +42,12 @@ static unsigned char ctrlSynchronized;
 
 tCtrlAppCallbacks ctrlAppCallbacks;
 
-static void ctrl_platform_reconnect(struct espconn *);
-static void ctrl_platform_discon(struct espconn *);
-
 static void ICACHE_FLASH_ATTR ctrl_platform_check_ip(void *arg)
 {
-    struct ip_info ipconfig;
-    static tCtrlConnState prevConnState = CTRL_AUTHENTICATION_ERROR; // anything other than the startup value "CTRL_WIFI_CONNECTING"
-
-	unsigned int ledBlinkerInterval;
-
     os_timer_disarm(&tmrLinker);
 
+    struct ip_info ipconfig;
     wifi_get_ip_info(STATION_IF, &ipconfig);
-
     if (wifi_station_get_connect_status() == STATION_GOT_IP && ipconfig.ip.addr != 0)
     {
         connState = CTRL_TCP_CONNECTING;
@@ -63,7 +55,7 @@ static void ICACHE_FLASH_ATTR ctrl_platform_check_ip(void *arg)
         	os_printf("TCP CONNECTING...\r\n");
         #endif
 
-        ledBlinkerInterval = 1000;
+        statusLed.count = LED_FLASH_CTRLERROR;
 
         ctrlConn.proto.tcp = &ctrlTcp;
         ctrlConn.type = ESPCONN_TCP;
@@ -80,6 +72,8 @@ static void ICACHE_FLASH_ATTR ctrl_platform_check_ip(void *arg)
     }
     else
     {
+		statusLed.count = LED_FLASH_NOWIFI;
+
         if(wifi_station_get_connect_status() == STATION_WRONG_PASSWORD ||
            		wifi_station_get_connect_status() == STATION_NO_AP_FOUND ||
            		wifi_station_get_connect_status() == STATION_CONNECT_FAIL)
@@ -91,29 +85,17 @@ static void ICACHE_FLASH_ATTR ctrl_platform_check_ip(void *arg)
 
             os_timer_setfn(&tmrLinker, (os_timer_func_t *)ctrl_platform_check_ip, NULL);
             os_timer_arm(&tmrLinker, 1000, 0); // try now slower
-
-            ledBlinkerInterval = 500;
         }
         else {
-            os_timer_setfn(&tmrLinker, (os_timer_func_t *)ctrl_platform_check_ip, NULL);
-            os_timer_arm(&tmrLinker, 100, 0);
-
-			ledBlinkerInterval = 1500;
-
             connState = CTRL_WIFI_CONNECTING;
             #ifdef CTRL_LOGGING
             	os_printf("WIFI CONNECTING...\r\n");
             #endif
+
+            os_timer_setfn(&tmrLinker, (os_timer_func_t *)ctrl_platform_check_ip, NULL);
+            os_timer_arm(&tmrLinker, 100, 0);
         }
     }
-
-	if(prevConnState != connState)
-	{
-		os_timer_disarm(&tmrStatusLedBlinker);
-		os_timer_arm(&tmrStatusLedBlinker, ledBlinkerInterval, 1);
-	}
-
-    prevConnState = connState;
 }
 
 static void ICACHE_FLASH_ATTR ctrl_platform_recon_cb(void *arg, sint8 err)
@@ -125,14 +107,12 @@ static void ICACHE_FLASH_ATTR ctrl_platform_recon_cb(void *arg, sint8 err)
     #endif
 
 	connState = CTRL_TCP_DISCONNECTED;
+	statusLed.count = LED_FLASH_CTRLERROR;
 
     if (++tcpReconCount >= 5)
     {
         connState = CTRL_TCP_CONNECTING_ERROR;
         tcpReconCount = 0;
-
-		os_timer_disarm(&tmrStatusLedBlinker);
-		os_timer_arm(&tmrStatusLedBlinker, 1000, 1);
 
         #ifdef CTRL_LOGGING
         	os_printf("ctrl_platform_recon_cb, 5 failed TCP attempts!\r\n");
@@ -191,9 +171,6 @@ static void ICACHE_FLASH_ATTR ctrl_platform_connect_cb(void *arg)
 
 	connState = CTRL_TCP_CONNECTED;
 
-	os_timer_disarm(&tmrStatusLedBlinker);
-	os_timer_arm(&tmrStatusLedBlinker, 3000, 1);
-
 	unsigned char sync = 0;
 	#ifdef USE_DATABASE_APPROACH
 		// 1. Flush acked transmissions until we get to the first unacked (or until the end)
@@ -241,7 +218,6 @@ static void ICACHE_FLASH_ATTR ctrl_platform_discon_cb(void *arg)
         return;
     }
 
-    //pespconn->proto.tcp->local_port = espconn_port(); // do I need this?
 	#ifdef CTRL_LOGGING
 		os_printf("Will reconnect in 1s...\r\n");
 	#endif
@@ -302,31 +278,36 @@ static void ICACHE_FLASH_ATTR ctrl_platform_discon(struct espconn *pespconn)
 	}
 #endif
 
-// blinking status led according to the status of wifi and tcp connection
+// blinking status led according to the status of system
 static void ICACHE_FLASH_ATTR ctrl_status_led_blinker(void *arg)
 {
-	/*static unsigned char ledStatusState;
+	os_timer_disarm(&(statusLed.tmr));
 
-	if(ledStatusState % 2) // & 0x01
+	if(!statusLed.ledstate)
 	{
-		gpio_output_set((1<<LED_STATUS_GPIO), 0, (1<<LED_STATUS_GPIO), 0); // LED ON
+		GPIO_OUTPUT_SET(12, 1); // LED ON
+		statusLed.ledstate = 1;
+		os_timer_arm(&(statusLed.tmr), LED_FLASH_DURATION_MS, 0);
 	}
 	else
 	{
-		gpio_output_set(0, (1<<LED_STATUS_GPIO), (1<<LED_STATUS_GPIO), 0); // LED OFF
+		GPIO_OUTPUT_SET(12, 0); // LED OFF
+		statusLed.ledstate = 0;
+		if(!statusLed.blinks)
+		{
+			statusLed.blinks = statusLed.count; // very first initialization
+		}
+		statusLed.blinks--;
+		if(statusLed.blinks)
+		{
+			os_timer_arm(&(statusLed.tmr), LED_FLASH_DURATION_MS*2, 0);
+		}
+		else
+		{
+			os_timer_arm(&(statusLed.tmr), LED_FLASH_FREQUENCY, 0);
+			statusLed.blinks = statusLed.count; // reload
+		}
 	}
-
-	ledStatusState++;*/
-
-	gpio_output_set((1<<LED_STATUS_GPIO), 0, (1<<LED_STATUS_GPIO), 0); // LED ON
-
-	os_timer_disarm(&tmrStatusLedBlinkerFlash);
-	os_timer_arm(&tmrStatusLedBlinkerFlash, LED_FLASH_DURATION_MS, 0); // don't repeat
-}
-
-static void ICACHE_FLASH_ATTR ctrl_status_led_blinker_flash(void *arg)
-{
-	gpio_output_set(0, (1<<LED_STATUS_GPIO), (1<<LED_STATUS_GPIO), 0); // LED OFF
 }
 
 static void ICACHE_FLASH_ATTR ctrl_message_recv_cb(tCtrlMessage *msg)
@@ -395,30 +376,6 @@ static void ICACHE_FLASH_ATTR ctrl_message_recv_cb(tCtrlMessage *msg)
 			rtc.second = atoi(tmp);
 			os_sprintf(tmp, "%d", msg->data[15]);
 			rtc.weekday = atoi(tmp);
-
-			/* v2
-			os_memcpy(tmp, msg->data+1, 4);
-			tmp[4] = NULL;
-			rtc.year = atoi(tmp);
-			os_memcpy(tmp, msg->data+1+4, 2);
-			tmp[2] = NULL;
-			rtc.month = atoi(tmp);
-			os_memcpy(tmp, msg->data+1+4+2, 2);
-			tmp[2] = NULL;
-			rtc.day = atoi(tmp);
-			os_memcpy(tmp, msg->data+1+4+2+2, 2);
-			tmp[2] = NULL;
-			rtc.hour = atoi(tmp);
-			os_memcpy(tmp, msg->data+1+4+2+2+2, 2);
-			tmp[2] = NULL;
-			rtc.minute = atoi(tmp);
-			os_memcpy(tmp, msg->data+1+4+2+2+2+2, 2);
-			tmp[2] = NULL;
-			rtc.second = atoi(tmp);
-			os_memcpy(tmp, msg->data+1+4+2+2+2+2+2, 1);
-			tmp[1] = NULL;
-			rtc.weekday = atoi(tmp);
-			*/
 
 			realrtc_set(&rtc);
 		}
@@ -544,6 +501,8 @@ static void ICACHE_FLASH_ATTR ctrl_auth_response_cb()
 
 	ctrlSynchronized = 1;
 
+	statusLed.count = LED_FLASH_OK;
+
 	#ifdef USE_DATABASE_APPROACH
 		if(ctrl_database_count_unacked_items() > 0)
 		{
@@ -656,7 +615,7 @@ static void ICACHE_FLASH_ATTR ctrl_platform_config_checker(void *arg)
 {
 	// taken from eshttpd of Sprite_tm, file: io.c
 	static int resetCnt = 0;
-	if (!GPIO_INPUT_GET(BTN_CONFIG_GPIO)) {
+	if (!GPIO_INPUT_GET(0)) {
 		resetCnt++;
 	}
 	else {
@@ -682,9 +641,10 @@ void ICACHE_FLASH_ATTR ctrl_platform_init(void)
 	realrtc_start(NULL);
 
 	// Init the BTN and LED used by the platform
-	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
-	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
-	gpio_output_set(0, (1<<LED_STATUS_GPIO), (1<<LED_STATUS_GPIO), 0); // added on 30/1/2015
+	gpio_init();
+	PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, FUNC_GPIO12); // status led
+	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0); // config button
+	GPIO_OUTPUT_SET(12, 0);
 
 	// taken from eshttpd of Sprite_tm, file: io.c
 	os_timer_disarm(&tmrConfigChecker);
@@ -755,12 +715,11 @@ void ICACHE_FLASH_ATTR ctrl_platform_init(void)
 		os_timer_setfn(&tmrLinker, (os_timer_func_t *)ctrl_platform_check_ip, NULL);
 		os_timer_arm(&tmrLinker, 100, 0);
 
-		// set a timer for a LED status blinking. it will be armed from sys_status_checker() once it executes
-		os_timer_disarm(&tmrStatusLedBlinker);
-		os_timer_setfn(&tmrStatusLedBlinker, (os_timer_func_t *)ctrl_status_led_blinker, NULL);
-		os_timer_arm(&tmrStatusLedBlinker, 200, 1); // actually lets start it right now to blink like WIFI is not available yet. 1 = repeat automatically
-		os_timer_disarm(&tmrStatusLedBlinkerFlash);
-		os_timer_setfn(&tmrStatusLedBlinkerFlash, (os_timer_func_t *)ctrl_status_led_blinker_flash, NULL);
+		// set a timer for Status LED blinking
+		statusLed.count = LED_FLASH_NOWIFI;
+		os_timer_disarm(&(statusLed.tmr));
+		os_timer_setfn(&(statusLed.tmr), (os_timer_func_t *)ctrl_status_led_blinker, NULL);
+		os_timer_arm(&(statusLed.tmr), LED_FLASH_FREQUENCY, 0);
 
 		#ifdef USE_DATABASE_APPROACH
 			// set a timer that will send items from the database (if database approach is used)

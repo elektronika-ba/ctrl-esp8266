@@ -3,6 +3,11 @@
 
 #include "c_types.h"
 #include "os_type.h"
+#include "ets_sys.h"
+#include "osapi.h"
+#include "user_interface.h"
+#include "espconn.h"
+
 #include "ctrl_stack.h"
 
 // When defined, will spit out logging messages on UART.
@@ -15,21 +20,27 @@
 // When not defined, you need to handle acknowledging current
 // transmission and re-transmitting it if something happens.
 #define USE_DATABASE_APPROACH
-
-// How many unprocessed CTRL messages can we hold until we tell Server to backoff
-#define TASK_QUEUE_LEN		5
-
-// http://g-lab.ca/esp8266ex-gpio-application-programming-interface/
-#define BTN_CONFIG_GPIO 	0			// Button to enter configuration mode of ESP8266
-#define LED_STATUS_GPIO		2			// Status LED that blinks according the the device's current WIFI and tcp-link status
-
-#define LED_FLASH_DURATION_MS			60 		// length of Status LED flash
-
-#define SETUP_OK_KEY					0xAA4529BA	// MAGIC VALUE. When settings exist in flash this is the valid-flag.
-
 #ifdef USE_DATABASE_APPROACH
 	#define TMR_ITEMS_SENDER_MS			150		// sending of all outgoing items when using the database approach
 #endif
+
+// How many unprocessed CTRL messages can we hold until we tell Server to backoff?
+#define TASK_QUEUE_LEN		5
+
+#define SETUP_OK_KEY					0xAA4529BA	// MAGIC VALUE. When settings exist in flash this is the valid-flag.
+
+#define	LED_FLASH_FREQUENCY				3000	// delay between status flashes in ms
+#define LED_FLASH_DURATION_MS			60 		// length of Status LED flash in ms
+#define LED_FLASH_OK					1		// number of flashes for this status
+#define	LED_FLASH_CTRLERROR				2		// number of flashes for this status
+#define	LED_FLASH_NOWIFI				3		// number of flashes for this status
+
+typedef struct {
+	unsigned char count; // how many times to blink?
+	unsigned char blinks;
+	unsigned char ledstate;
+	os_timer_t tmr;
+} tStatusLed;
 
 typedef enum {
 	CTRL_WIFI_CONNECTING,
@@ -58,6 +69,8 @@ typedef struct {
 } tCtrlAppCallbacks;
 
 // private
+static void ctrl_platform_reconnect(struct espconn *);
+static void ctrl_platform_discon(struct espconn *);
 static void ctrl_platform_check_ip(void *);
 static void ctrl_platform_recon_cb(void *, sint8);
 static void ctrl_platform_sent_cb(void *);

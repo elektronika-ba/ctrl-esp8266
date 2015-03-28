@@ -1,3 +1,4 @@
+/*
 #include "ets_sys.h"
 #include "osapi.h"
 #include "user_interface.h"
@@ -91,3 +92,4 @@ void ICACHE_FLASH_ATTR ctrl_app_init(tCtrlAppCallbacks *ctrlAppCallbacks)
 	os_timer_setfn(&tmrBase, (os_timer_func_t *)ctrl_app_servo_pulse, NULL);
 	os_timer_arm(&tmrBase, 20, 1); // 1 = repeat automatically
 }
+*/

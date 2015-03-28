@@ -29,6 +29,14 @@ typedef struct {
 #define CH_BACKOFF 			0x40 // dual meaning, if sent from Base->Server it means that Server should Backoff. If sent from Server->Base it means that Server has backed off (so it is a confirmation of backoff).
 #define CH_SAVE_TXSERVER	0x80
 
+// System Messages/Actions provided by CTRL Server
+#define	SYSTEM_MESSAGE_RESEND_UNACKED	0x01
+#define	SYSTEM_MESSAGE_KEEPALIVE_ON		0x02
+#define	SYSTEM_MESSAGE_KEEPALIVE_OFF	0x03
+#define	SYSTEM_MESSAGE_SAVE_VAR			0x04
+#define	SYSTEM_MESSAGE_GET_VAR			0x05
+#define	SYSTEM_MESSAGE_GET_RTC			0x06
+
 // private
 static unsigned short ctrl_find_message(char *, unsigned short);
 static void ctrl_stack_process_message(tCtrlMessage *);
@@ -38,6 +46,7 @@ static unsigned char ctrl_stack_send_msg(tCtrlMessage *);
 void reverse_buffer(char *, unsigned short);
 void ctrl_stack_backoff(unsigned char);
 void ctrl_stack_keepalive(unsigned char);
+void ctrl_stack_get_rtc(void);
 unsigned char ctrl_stack_send(char *, unsigned short, unsigned long, unsigned char);
 void ctrl_stack_recv(char *, unsigned short);
 void ctrl_stack_authorize(char *, char *, unsigned char);

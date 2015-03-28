@@ -4,6 +4,7 @@ user/.output/*
 driver/.output/*
 ctrl/.output/*
 ctrl_user_app/.output/*
+misc/.output/*
 
 # Windows image file caches
 Thumbs.db

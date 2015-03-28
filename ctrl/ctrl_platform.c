@@ -8,22 +8,23 @@
 
 #include "../driver/include/flash_param.h"
 #include "../misc/include/wifi.h"
-#include "include/ctrl_database.h"
 #include "include/ctrl_stack.h"
 #include "include/ctrl_config_server.h"
+#include "../misc/include/realrtc.h"
 
 #include "include/ctrl_platform.h"
 
-os_event_t *taskQueue;
-
 #ifdef USE_DATABASE_APPROACH
-	#ifndef CTRL_DATABASE_CAPACITY
+	#include "include/ctrl_database.h"
+	/*#ifndef CTRL_DATABASE_CAPACITY
 		#error You probably forgot to include ctrl_database.h in ctrl_platform.c file?
-	#endif
+	#endif*/
 	os_timer_t tmrDatabaseItemSender;
 #else
 	static unsigned long TXbase;
 #endif
+
+os_event_t *taskQueue;
 
 os_timer_t tmrConfigChecker;
 struct espconn ctrlConn;
@@ -355,7 +356,7 @@ static void ICACHE_FLASH_ATTR ctrl_message_recv_cb(tCtrlMessage *msg)
 		// we previously requested!
 
 		// Recently requested variable is arriving from Server?
-		if(msg->data[0] == 0x05)
+		if(msg->data[0] == SYSTEM_MESSAGE_GET_VAR)
 		{
 			// we have a Variable!
 			char variableId[4];
@@ -366,11 +367,60 @@ static void ICACHE_FLASH_ATTR ctrl_message_recv_cb(tCtrlMessage *msg)
 			// do something with this Variable+Value that arrived
 		}
 		// Recently requested timestamp is arriving from Server?
-		else if(msg->data[0] == 0x06)
+		else if(msg->data[0] == SYSTEM_MESSAGE_GET_RTC)
 		{
 			// we have Timestamp!
 
-			// do something with this Timestamp that arrived (format: YYYY MM DD HH MM SS DAY-OF-WEEK(1-7))
+			#ifdef CTRL_LOGGING
+				char debug[100];
+				os_sprintf(debug, "GOT TIMESTAMP: %d%d%d%d-%d%d-%d%d %d%d:%d%d:%d%d (%d)\r\n", msg->data[1], msg->data[2], msg->data[3], msg->data[4], msg->data[5], msg->data[6], msg->data[7], msg->data[8], msg->data[9], msg->data[10], msg->data[11], msg->data[12], msg->data[13], msg->data[14], msg->data[15]);
+				os_printf_plus(debug);
+			#endif
+
+			// Parse timestamp that arrived (format: YYYY MM DD HH MM SS DAY-OF-WEEK(1-7))
+			tRealRTC rtc;
+
+			char tmp[5];
+			os_sprintf(tmp, "%d%d%d%d", msg->data[1], msg->data[2], msg->data[3], msg->data[4]);
+			rtc.year = atoi(tmp);
+			os_sprintf(tmp, "%d%d", msg->data[5], msg->data[6]);
+			rtc.month = atoi(tmp);
+			os_sprintf(tmp, "%d%d", msg->data[7], msg->data[8]);
+			rtc.day = atoi(tmp);
+			os_sprintf(tmp, "%d%d", msg->data[9], msg->data[10]);
+			rtc.hour = atoi(tmp);
+			os_sprintf(tmp, "%d%d", msg->data[11], msg->data[12]);
+			rtc.minute = atoi(tmp);
+			os_sprintf(tmp, "%d%d", msg->data[13], msg->data[14]);
+			rtc.second = atoi(tmp);
+			os_sprintf(tmp, "%d", msg->data[15]);
+			rtc.weekday = atoi(tmp);
+
+			/* v2
+			os_memcpy(tmp, msg->data+1, 4);
+			tmp[4] = NULL;
+			rtc.year = atoi(tmp);
+			os_memcpy(tmp, msg->data+1+4, 2);
+			tmp[2] = NULL;
+			rtc.month = atoi(tmp);
+			os_memcpy(tmp, msg->data+1+4+2, 2);
+			tmp[2] = NULL;
+			rtc.day = atoi(tmp);
+			os_memcpy(tmp, msg->data+1+4+2+2, 2);
+			tmp[2] = NULL;
+			rtc.hour = atoi(tmp);
+			os_memcpy(tmp, msg->data+1+4+2+2+2, 2);
+			tmp[2] = NULL;
+			rtc.minute = atoi(tmp);
+			os_memcpy(tmp, msg->data+1+4+2+2+2+2, 2);
+			tmp[2] = NULL;
+			rtc.second = atoi(tmp);
+			os_memcpy(tmp, msg->data+1+4+2+2+2+2+2, 1);
+			tmp[1] = NULL;
+			rtc.weekday = atoi(tmp);
+			*/
+
+			realrtc_set(&rtc);
 		}
 	}
 	else
@@ -488,6 +538,9 @@ static void ICACHE_FLASH_ATTR ctrl_auth_response_cb()
 
 	connState = CTRL_AUTHENTICATED;
 	ctrl_stack_keepalive(1); // lets enable keepalive for our connection because that's what all cool kids do these days
+
+	// request current timestamp from Server
+	ctrl_stack_get_rtc();
 
 	ctrlSynchronized = 1;
 
@@ -625,6 +678,10 @@ void ICACHE_FLASH_ATTR ctrl_platform_init(void)
 {
 	load_flash_param(ESP_PARAM_SAVE_1, (uint32 *)&ctrlSetup, sizeof(tCtrlSetup));
 
+	// Start the real RTC
+	realrtc_start(NULL);
+
+	// Init the BTN and LED used by the platform
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
 	PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
 	gpio_output_set(0, (1<<LED_STATUS_GPIO), (1<<LED_STATUS_GPIO), 0); // added on 30/1/2015
@@ -665,23 +722,6 @@ void ICACHE_FLASH_ATTR ctrl_platform_init(void)
 		// of the user-application.
 		// The AP's parameters are set in ctrl_config_server.c by calling setup_wifi_st_mode()
 		// which is located in wifi.c.
-
-		/*if(wifi_get_opmode() != STATION_MODE)
-		{
-			#ifdef CTRL_LOGGING
-				os_printf("Warning, switching to STATION mode!\r\n");
-			#endif
-			wifi_set_opmode(STATION_MODE);
-		}*/
-
-		/*if(wifi_get_phy_mode() != PHY_MODE_11N)
-		{
-			wifi_set_phy_mode(PHY_MODE_11N);
-		}
-		if(wifi_station_get_auto_connect() == 0)
-		{
-			wifi_station_set_auto_connect(1);
-		}*/
 
 		#ifdef CTRL_LOGGING
 			struct station_config stationConf;

@@ -531,6 +531,21 @@ void ICACHE_FLASH_ATTR ctrl_stack_backoff(unsigned char backoff_)
 	backoff = backoff_;
 }
 
+// this sends a request for current timestamp from Server. It should arrive asynchroniously ASAP
+void ICACHE_FLASH_ATTR ctrl_stack_get_rtc(void)
+{
+	tCtrlMessage msg;
+	msg.header = CH_SYSTEM_MESSAGE | CH_NOTIFICATION; // lets set NOTIFICATION type also, because we don't need ACKs on this system command, not a VERY big problem if it doesn't get through really
+	msg.TXsender = 0; // since we set NOTIFICATION type, this is not relevant
+
+	char d = SYSTEM_MESSAGE_GET_RTC;
+	msg.data = (char *)&d;
+
+	msg.length = 1+4+1;
+
+	ctrl_stack_send_msg(&msg);
+}
+
 // this enables or disables the keep-alive on server's side
 void ICACHE_FLASH_ATTR ctrl_stack_keepalive(unsigned char keepalive)
 {
@@ -538,10 +553,10 @@ void ICACHE_FLASH_ATTR ctrl_stack_keepalive(unsigned char keepalive)
 	msg.header = CH_SYSTEM_MESSAGE | CH_NOTIFICATION; // lets set NOTIFICATION type also, because we don't need ACKs on this system command, not a VERY big problem if it doesn't get through really
 	msg.TXsender = 0; // since we set NOTIFICATION type, this is not relevant
 
-	char d = 0x03; // disable
+	char d = SYSTEM_MESSAGE_KEEPALIVE_OFF; // disable
 	if(keepalive)
 	{
-		d = 0x02; // enable
+		d = SYSTEM_MESSAGE_KEEPALIVE_ON; // enable
 	}
 	msg.data = (char *)&d;
 

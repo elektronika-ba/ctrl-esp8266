@@ -25,9 +25,9 @@ static void ICACHE_FLASH_ATTR ctrl_app_message_received(tCtrlMessage *msg)
 	os_printf(".\r\n");
 
 	tRealRTC *rtc;
-	realrtc_get(&rtc);
-	char tmp3[120];
-	os_sprintf(tmp3, "@RTC: %4d-%2d-%2d %2d:%2d:%2d (%d)\r\n", rtc->year, rtc->month, rtc->day, rtc->hour, rtc->minute, rtc->second, rtc->weekday);
+	realrtc_peek(&rtc);
+	char tmp3[150];
+	os_sprintf(tmp3, "@RTC: [DST:%d] %04d-%02d-%02d %02d:%02d:%02d (DAY:%d)\r\n", rtc->dst_added, rtc->year, rtc->month, rtc->day, rtc->hour, rtc->minute, rtc->second, rtc->weekday);
 	os_printf_plus(tmp3);
 }
 

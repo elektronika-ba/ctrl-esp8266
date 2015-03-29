@@ -354,27 +354,29 @@ static void ICACHE_FLASH_ATTR ctrl_message_recv_cb(tCtrlMessage *msg)
 
 			#ifdef CTRL_LOGGING
 				char debug[100];
-				os_sprintf(debug, "GOT TIMESTAMP: %d%d%d%d-%d%d-%d%d %d%d:%d%d:%d%d (%d)\r\n", msg->data[1], msg->data[2], msg->data[3], msg->data[4], msg->data[5], msg->data[6], msg->data[7], msg->data[8], msg->data[9], msg->data[10], msg->data[11], msg->data[12], msg->data[13], msg->data[14], msg->data[15]);
+				os_sprintf(debug, "GOT TIMESTAMP: [%d] %d%d%d%d-%d%d-%d%d %d%d:%d%d:%d%d (%d)\r\n", msg->data[1], msg->data[2], msg->data[3], msg->data[4], msg->data[5], msg->data[6], msg->data[7], msg->data[8], msg->data[9], msg->data[10], msg->data[11], msg->data[12], msg->data[13], msg->data[14], msg->data[15], msg->data[16]);
 				os_printf_plus(debug);
 			#endif
 
-			// Parse timestamp that arrived (format: YYYY MM DD HH MM SS DAY-OF-WEEK(1-7))
+			// Parse timestamp that arrived (format: DST-OPTION(0/1/2) YYYY MM DD HH MM SS DAY-OF-WEEK(1-7))
 			tRealRTC rtc;
 
 			char tmp[5];
-			os_sprintf(tmp, "%d%d%d%d", msg->data[1], msg->data[2], msg->data[3], msg->data[4]);
+			os_sprintf(tmp, "%d", msg->data[1]);
+			rtc.dst = atoi(tmp);
+			os_sprintf(tmp, "%d%d%d%d", msg->data[2], msg->data[3], msg->data[4], msg->data[5]);
 			rtc.year = atoi(tmp);
-			os_sprintf(tmp, "%d%d", msg->data[5], msg->data[6]);
+			os_sprintf(tmp, "%d%d", msg->data[6], msg->data[7]);
 			rtc.month = atoi(tmp);
-			os_sprintf(tmp, "%d%d", msg->data[7], msg->data[8]);
+			os_sprintf(tmp, "%d%d", msg->data[8], msg->data[9]);
 			rtc.day = atoi(tmp);
-			os_sprintf(tmp, "%d%d", msg->data[9], msg->data[10]);
+			os_sprintf(tmp, "%d%d", msg->data[10], msg->data[11]);
 			rtc.hour = atoi(tmp);
-			os_sprintf(tmp, "%d%d", msg->data[11], msg->data[12]);
+			os_sprintf(tmp, "%d%d", msg->data[12], msg->data[13]);
 			rtc.minute = atoi(tmp);
-			os_sprintf(tmp, "%d%d", msg->data[13], msg->data[14]);
+			os_sprintf(tmp, "%d%d", msg->data[14], msg->data[15]);
 			rtc.second = atoi(tmp);
-			os_sprintf(tmp, "%d", msg->data[15]);
+			os_sprintf(tmp, "%d", msg->data[16]);
 			rtc.weekday = atoi(tmp);
 
 			realrtc_set(&rtc);

@@ -139,7 +139,7 @@ void ICACHE_FLASH_ATTR cmac_generate(unsigned char *KEY, unsigned char *input, u
 		result[i] = 0;
 	}
 
-	for (i=0; i<n-1; i++) {
+	for (i=0; i<n; i++) {
 		cmac_xor_buffers(result, &input[16*i], result, 16); // Y := Mi (+) X
 		aes128_cbc_encrypt(result, 16, KEY); // X := AES-128(KEY, Y);
 	}
